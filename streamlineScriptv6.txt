@@ -1,0 +1,373 @@
+//// Global variables
+var originalSsId, originalSheet, originalSs, fileArray;
+
+// Original file locations
+var nameRow = 0;
+var locRow = 1;
+var deptRow = 3;
+var posRow = 4;
+var rowStart = 9;
+
+var wkCol = 1;
+var nameCol = 2;
+var apprCol = 10;        // yes or empty
+var schedCol = 11;       // date or empty
+
+var GLD1Col = 4;
+var GLD2Col = 5;
+var GLD3Col = 6;
+
+var RWC1Col = 7;
+var RWC2Col = 8;
+var RWC3Col = 9;
+
+// New file locations
+var headerRow = 1;
+var headerCol = 1;
+var startCol = 0;
+
+var newNameCol = 1;
+var newWeekCol = 2;
+
+var traineeCol = 3;
+var newDeptCol = 4;
+var newPosCol = 5;
+
+var newLocCol = 6;
+
+var newGLD1Col = 7;
+var newGLD2Col = 8;
+var newGLD3Col = 9;
+
+var newRWC1Col = 10;
+var newRWC2Col = 11;
+var newRWC3Col = 12;
+
+var newSchedCol = 13;
+
+var startRow = 1;
+
+
+/**
+ * A special function that runs when the spreadsheet is open, used to add a
+ * custom menu to the spreadsheet.
+ */
+function onOpen() {
+
+  originalSs = SpreadsheetApp.getActiveSpreadsheet();
+  
+  // Add function to delete scheduled classes
+  var menuItems = [
+    {name: 'Get Data', functionName: 'getData'}, {name: 'Delete Scheduled', functionName: 'deleteScheduled'}
+  ];
+  originalSs.addMenu('Custom Functions', menuItems);
+  
+  // Store this sheet's Id
+  originalSsId = originalSs.getId();
+}
+
+
+function createHeader(sheet){
+  
+  sheet.getRange(headerRow, newNameCol).setValue("Class").setFontWeight("bold");
+  sheet.getRange(headerRow, newWeekCol).setValue("Week").setFontWeight("bold");
+  sheet.getRange(headerRow, traineeCol).setValue("Trainee").setFontWeight("bold");
+  sheet.getRange(headerRow, newLocCol).setValue("Location").setFontWeight("bold");
+  sheet.getRange(headerRow, newSchedCol).setValue("Scheduled?").setFontWeight("bold");
+  
+  sheet.getRange(headerRow, newDeptCol).setValue("Department").setFontWeight("bold");
+  sheet.getRange(headerRow, newPosCol).setValue("Position").setFontWeight("bold");
+  
+  sheet.getRange(headerRow, newGLD1Col).setValue("GLD Instructor 1").setFontWeight("bold");
+  sheet.getRange(headerRow, newGLD2Col).setValue("GLD Instructor 2").setFontWeight("bold");
+  sheet.getRange(headerRow, newGLD3Col).setValue("GLD Instructor 3").setFontWeight("bold");
+  
+  sheet.getRange(headerRow, newRWC1Col).setValue("RWC Instructor 1").setFontWeight("bold");
+  sheet.getRange(headerRow, newRWC2Col).setValue("RWC Instructor 2").setFontWeight("bold");
+  sheet.getRange(headerRow, newRWC3Col).setValue("RWC Instructor 3").setFontWeight("bold");
+  
+  sheet.setFrozenRows(1);
+}
+
+
+function openFile(anID){
+  // Open spreadsheet, activate  appropriate sheet
+  var aSs = SpreadsheetApp.openById(anID);
+  SpreadsheetApp.setActiveSpreadsheet(aSs);
+  return SpreadsheetApp.setActiveSheet(aSs.getSheets()[0]);
+}
+
+
+function getData(){
+
+ var response = Browser.msgBox('Have you cleared all filters on this spreadsheet? If not, please click "No" and clear all filters before running the script.', Browser.Buttons.YES_NO);
+  
+  if (response === "yes"){
+    
+    var includeScheduled = (Browser.msgBox('Would you like to include already scheduled training?', Browser.Buttons.YES_NO) === "yes");
+    
+    originalSs = SpreadsheetApp.getActiveSpreadsheet();
+    
+    // Store this sheet's Id
+    originalSsId = originalSs.getId();
+    
+    // Check if sheet is empty
+    originalSheet = originalSs.getActiveSheet();
+    originalSheet.unhideRow(originalSheet.getDataRange());
+    originalSheet.clear();
+    createHeader(originalSheet);
+    
+    
+    fileArray=[];
+    
+    var folderName = Browser.inputBox("Enter Folder Name (just click 'Ok' if finished): ");
+    while(folderName !== ""){
+      var folder = DocsList.getFolder(folderName);
+      fileArray.push(folder);
+      folderName = Browser.inputBox("Enter Folder Name (just click 'Ok' if finished): ");
+    }
+    
+    for(var i=0; i<fileArray.length; i++){
+      var classList = [];
+      var files = fileArray[i].getFilesByType(DocsList.FileType.SPREADSHEET);
+      
+      for (var j=0; j<files.length; j++){
+        var thisId = files[j].getId();
+        var thisSheet = openFile(thisId);
+        
+        // Parse data
+        parseFile(thisSheet, classList, includeScheduled);
+      }
+      printClassList(classList);
+    }
+  }
+}
+
+
+function parseFile(aSheet, classList, includeScheduled){
+  
+  var allData = aSheet.getDataRange().getValues();
+  
+  // Loop through classes
+  for(currentRow=rowStart; currentRow<allData.length; currentRow++){
+
+    var isApproved = ((allData[currentRow][apprCol].toString() !== "") && (allData[currentRow][apprCol].toString().toLowerCase() !== "no"));
+    var isScheduled = allData[currentRow][schedCol] !== "";
+
+    var include;
+    if (includeScheduled){
+      include = (isApproved);
+    } else {
+      include = (isApproved && !isScheduled)
+    }
+    
+    // Create class if approved and not scheduled
+    if(include){
+      var aClassName = allData[currentRow][nameCol];
+      var aWeek = allData[currentRow][wkCol];
+      
+      //Instructors
+      var GLD1 = allData[currentRow][GLD1Col];
+      var GLD2 = allData[currentRow][GLD2Col];
+      var GLD3 = allData[currentRow][GLD3Col];
+      
+      var RWC1 = allData[currentRow][RWC1Col];
+      var RWC2 = allData[currentRow][RWC2Col];
+      var RWC3 = allData[currentRow][RWC3Col];
+      
+      // Create class object
+      var thisClass = new Class(aClassName, isApproved, isScheduled, aWeek, GLD1, GLD2, GLD3, RWC1, RWC2, RWC3);
+            
+      //Counter Variable
+      var currentCol = 1;
+      
+      //Get trainee info and put into Class object's array
+      do{
+        var aName = allData[nameRow][currentCol];
+        var aLocation = allData[locRow][currentCol];
+        var aDepartment = allData[deptRow][currentCol];
+        var aPosition = allData[posRow][currentCol];
+        
+        var aTrainee = new Trainee(aName, aLocation, aDepartment, aPosition);
+        
+        thisClass.addTrainee(aTrainee);
+        
+        currentCol++;
+        
+      } while(allData[nameRow][currentCol] !== "");
+      classList.push(thisClass);
+    }
+  }
+  
+}
+
+
+
+function printClassList(classList){
+  
+  SpreadsheetApp.setActiveSpreadsheet(originalSs);
+  SpreadsheetApp.setActiveSheet(originalSheet);
+  
+  var currentRow = originalSheet.getLastRow()+1;
+  
+  for(var i = 0; i < classList.length; i += 1){
+    var trainees = classList[i].getTrainees();
+    
+    for(var j = 0; j<trainees.length; j++){
+      originalSheet.getRange(currentRow, newNameCol).setValue(classList[i].getName());
+      originalSheet.getRange(currentRow, newWeekCol).setValue(classList[i].getWeek());
+      
+      originalSheet.getRange(currentRow, traineeCol).setValue(trainees[j].getName());
+      originalSheet.getRange(currentRow, newLocCol).setValue(trainees[j].getLocation());
+      originalSheet.getRange(currentRow, newDeptCol).setValue(trainees[j].getDepartment());
+      originalSheet.getRange(currentRow, newPosCol).setValue(trainees[j].getPosition());
+      
+      if(classList[i].isSched()){
+        originalSheet.getRange(currentRow, newSchedCol).setValue("Scheduled");
+      } else {
+        originalSheet.getRange(currentRow, newSchedCol).setValue("Not Scheduled");
+      }
+      originalSheet.getRange(currentRow, newGLD1Col).setValue(classList[i].getGLD1());
+      originalSheet.getRange(currentRow, newGLD2Col).setValue(classList[i].getGLD2());
+      originalSheet.getRange(currentRow, newGLD3Col).setValue(classList[i].getGLD3());
+      
+      originalSheet.getRange(currentRow, newRWC1Col).setValue(classList[i].getRWC1());
+      originalSheet.getRange(currentRow, newRWC2Col).setValue(classList[i].getRWC2());
+      originalSheet.getRange(currentRow, newRWC3Col).setValue(classList[i].getRWC3());
+      
+      currentRow++;
+    }
+  }
+
+}
+
+
+function deleteScheduled(){
+  
+  originalSs = SpreadsheetApp.getActiveSpreadsheet();
+  thisSheet = originalSs.getActiveSheet();
+  
+  var thisData = thisSheet.getDataRange().getValues();
+  
+  var currentRow = 2;
+  while(thisData[currentRow][newNameCol] !== ""){
+    if (thisSheet.getRange(currentRow, newSchedCol).getValue() === "Scheduled"){
+        thisSheet.deleteRow(currentRow);
+        currentRow--;
+    }
+    currentRow++;
+  }
+
+}
+
+  
+//// Class Object
+function Class (name, approved, scheduled, week, gld1, gld2, gld3, rwc1, rwc2, rwc3){
+  
+  this.name = name;
+  this.approved = approved;
+  this.scheduled = scheduled;
+  this.week = week;
+  
+  this.gld1 = gld1;
+  this.gld2 = gld2;
+  this.gld3 = gld3;
+  
+  this.rwc1 = rwc1;
+  this.rwc2 = rwc2;
+  this.rwc3 = rwc3;
+  
+  this.trainees = [];
+
+}
+
+Class.prototype.getName = function(){
+  return this.name;
+}
+
+Class.prototype.getLoc = function(){
+  return this.locations;
+}
+
+Class.prototype.isAppr = function(){
+  return this.approved;
+}
+
+Class.prototype.isSched = function(){
+  return this.scheduled;
+}
+
+Class.prototype.getWeek = function(){
+  return this.week;
+}
+
+Class.prototype.getTrainees = function(){
+  return this.trainees;
+}
+
+Class.prototype.getLocations = function(){
+  return this.locations;
+}
+
+
+Class.prototype.getGLD1 = function(){
+  return this.gld1;
+}
+
+Class.prototype.getGLD2 = function(){
+  return this.gld2;
+}
+
+Class.prototype.getGLD3 = function(){
+  return this.gld3;
+}
+
+Class.prototype.getRWC1 = function(){
+  return this.rwc1;
+}
+
+Class.prototype.getRWC2 = function(){
+  return this.rwc2;
+}
+
+Class.prototype.getRWC3 = function(){
+  return this.rwc3;
+}
+
+
+Class.prototype.addTrainee = function(aTrainee){
+  this.trainees.push(aTrainee);
+}
+
+Class.prototype.equals = function(otherClass){
+  return this.getName() === otherClass.getName();
+}
+
+Class.prototype.viewInfo = function(){
+  Browser.msgBox(this.name +" "+ this.week +" "+ this.trainees);
+}
+
+
+//// Trainee Object
+function Trainee(name, location, department, position){
+  this.name = name;
+  this.location = location;
+  this.department = department;
+  this.position = position;
+}
+
+Trainee.prototype.getName = function(){
+  return this.name;
+}
+
+Trainee.prototype.getLocation = function(){
+  return this.location;
+}
+
+Trainee.prototype.getDepartment = function(){
+  return this.department;
+}
+
+Trainee.prototype.getPosition = function(){
+  return this.position;
+}
